@@ -21,10 +21,13 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"github.com/scionproto/scion/pkg/addr"
 	"github.com/scionproto/scion/pkg/log"
 	"github.com/scionproto/scion/pkg/private/common"
 	"github.com/scionproto/scion/pkg/private/serrors"
+	"github.com/scionproto/scion/pkg/slayers"
 	"github.com/scionproto/scion/pkg/slayers/path/scion"
 	"github.com/scionproto/scion/pkg/snet"
 	"github.com/scionproto/scion/pkg/snet/path"
@@ -330,8 +333,23 @@ func (h scmpHandler) handle(pkt *snet.Packet) (snet.SCMPTracerouteReply, error) 
 	}
 	r, ok := pkt.Payload.(snet.SCMPTracerouteReply)
 	if !ok {
-		return snet.SCMPTracerouteReply{}, serrors.New("not SCMPTracerouteReply",
-			"type", common.TypeOf(pkt.Payload))
+		return snet.SCMPTracerouteReply{}, serrors.Join(serrors.New("not SCMPTracerouteReply",
+			"type", common.TypeOf(pkt.Payload)),h.handleError(pkt))
 	}
 	return r, nil
+}
+
+func (h scmpHandler) handleError(pkt *snet.Packet) error {
+	p, ok := pkt.Payload.(snet.SCMPPayload)
+	if !ok {
+		return serrors.New("not a SCMPPayload")
+	}
+	tc := slayers.CreateSCMPTypeCode(p.Type(), p.Code())
+	switch tc.Type() {
+	case slayers.SCMPTypeParameterProblem:
+		gopkt := gopacket.NewPacket(pkt.Bytes, slayers.LayerTypeSCION, gopacket.Default)
+		return serrors.New("parameter problem", "packet_dump", gopkt.Dump() )
+	default:
+		return serrors.New(tc.String())
+	}
 }
