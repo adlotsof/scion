@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
+	// "github.com/google/gopacket/layers"
 	"github.com/scionproto/scion/pkg/addr"
 	"github.com/scionproto/scion/pkg/log"
 	"github.com/scionproto/scion/pkg/private/common"
@@ -329,12 +329,12 @@ func (h scmpHandler) Handle(pkt *snet.Packet) error {
 
 func (h scmpHandler) handle(pkt *snet.Packet) (snet.SCMPTracerouteReply, error) {
 	if pkt.Payload == nil {
-		return snet.SCMPTracerouteReply{}, serrors.New("no payload found")
+		return snet.SCMPTracerouteReply{}, ErrPayloadNotFound
 	}
 	r, ok := pkt.Payload.(snet.SCMPTracerouteReply)
 	if !ok {
-		return snet.SCMPTracerouteReply{}, serrors.Join(serrors.New("not SCMPTracerouteReply",
-			"type", common.TypeOf(pkt.Payload)),h.handleError(pkt))
+		return snet.SCMPTracerouteReply{}, serrors.Wrap(ErrNotSCMPTracerouteReply,h.handleError(pkt),
+			"type", common.TypeOf(pkt.Payload))
 	}
 	return r, nil
 }
@@ -342,14 +342,22 @@ func (h scmpHandler) handle(pkt *snet.Packet) (snet.SCMPTracerouteReply, error) 
 func (h scmpHandler) handleError(pkt *snet.Packet) error {
 	p, ok := pkt.Payload.(snet.SCMPPayload)
 	if !ok {
-		return serrors.New("not a SCMPPayload")
+		return ErrNotSCMPPayload
 	}
 	tc := slayers.CreateSCMPTypeCode(p.Type(), p.Code())
 	switch tc.Type() {
 	case slayers.SCMPTypeParameterProblem:
 		gopkt := gopacket.NewPacket(pkt.Bytes, slayers.LayerTypeSCION, gopacket.Default)
-		return serrors.New("parameter problem", "packet_dump", gopkt.Dump() )
+		return serrors.Wrap(ErrParameterProblem, serrors.New("packet contents", "contents", gopkt.Dump()) )
 	default:
-		return serrors.New(tc.String())
+		return serrors.WithCtx(ErrWrongPayloadType, "type", tc.String())
 	}
 }
+
+var (
+	ErrPayloadNotFound = serrors.New("no payload found")
+	ErrNotSCMPTracerouteReply = serrors.New("not SMPTracerouteReply")
+	ErrParameterProblem = serrors.New("parameter problem")
+	ErrNotSCMPPayload = serrors.New("not SCMPPayload")
+	ErrWrongPayloadType = serrors.New("wrong payload type")
+)
